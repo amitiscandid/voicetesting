@@ -1,20 +1,12 @@
-<manifest xmlns:android="http://schemas.microsoft.com/apk/res/android"
-    package="com.voicetesting">
+<manifest xmlns:android="http://schemas.microsoft.com/apk/res/android">
 
-    <!-- Permissions required for audio recording and network communication -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- 
-      Android 11+ (API 30+) Package Visibility queries.
-      These are required to allow the application to discover and bind to native voice engines.
-    -->
     <queries>
-        <!-- Speech Recognition Service -->
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
-        <!-- Text-to-Speech Engine Service -->
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
@@ -26,11 +18,13 @@
       android:icon="@mipmap/ic_launcher"
       android:roundIcon="@mipmap/ic_launcher_round"
       android:allowBackup="false"
-      android:theme="@style/AppTheme">
+      android:theme="@style/AppTheme"
+      android:usesCleartextTraffic="${usesCleartextTraffic}"
+      android:supportsRtl="true">
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
-        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode"
+        android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
         android:launchMode="singleTask"
         android:windowSoftInputMode="adjustResize"
         android:exported="true">
