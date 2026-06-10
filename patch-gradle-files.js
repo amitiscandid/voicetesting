@@ -38,3 +38,10 @@ patchFile(voicePath, [
   { pattern: /android\s*{/g, replacement: 'android {\n    namespace "com.wenkesj.voice"' },
   { pattern: /"com.android.support:appcompat-v7:\${supportVersion}"/g, replacement: '"androidx.appcompat:appcompat:1.6.1"' }
 ]);
+
+// 3. Patch llama.rn build.gradle
+const llamaPath = path.join(__dirname, 'node_modules', 'llama.rn', 'android', 'build.gradle');
+patchFile(llamaPath, [
+  { pattern: /android\s*{/g, replacement: 'android {\n    namespace "com.rnllama"' }
+]);
+
