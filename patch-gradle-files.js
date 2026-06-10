@@ -31,7 +31,7 @@ patchFile(ttsPath, [
 ]);
 
 // 2. Patch @react-native-voice/voice build.gradle
-const voicePath = path.join(__dirname, 'node_modules', '@react-native-voice', 'voice', 'android', 'build.gradle');
+const voicePath = path.join(__dirname, 'node_modules', '@dev-amirzubair', 'react-native-voice', 'android', 'build.gradle');
 patchFile(voicePath, [
   { pattern: /jcenter\(\)/g, replacement: 'google()\n        mavenCentral()' },
   { pattern: /'com.android.tools.build:gradle:3.3.2'/g, replacement: "'com.android.tools.build:gradle:8.2.1'" },

@@ -18,7 +18,7 @@ import {
 import Voice, {
   SpeechResultsEvent,
   SpeechErrorEvent,
-} from '@react-native-voice/voice';
+} from '@dev-amirzubair/react-native-voice';
 import Tts from 'react-native-tts';
 
 // Interfaces for TTS Engine voices
