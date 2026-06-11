@@ -21,7 +21,7 @@ import Voice, {
   SpeechErrorEvent,
 } from '@dev-amirzubair/react-native-voice';
 import Tts from 'react-native-tts';
-import RNFS from '@dr.pogodin/react-native-fs';
+import * as RNFS from '@dr.pogodin/react-native-fs';
 import { initLlama } from 'llama.rn';
 
 // Interfaces for TTS Engine voices
