@@ -40,6 +40,65 @@ interface ChatMessage {
   sender: 'user' | 'ai';
 }
 
+interface ModelOption {
+  id: string;
+  name: string;
+  url: string;
+  filename: string;
+  size: string;
+  isCloud?: boolean;
+}
+
+// Available Models
+const MODELS: ModelOption[] = [
+  {
+    id: 'llama-1b',
+    name: 'llama3.2:1b',
+    url: 'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+    filename: 'Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+    size: '1.2 GB',
+  },
+  {
+    id: 'llama-3b',
+    name: 'llama3.2:3b',
+    url: 'https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+    filename: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+    size: '2.0 GB',
+  },
+  {
+    id: 'qwen-cloud',
+    name: 'qwen3.5:cloud',
+    url: '',
+    filename: '',
+    size: '',
+    isCloud: true,
+  },
+  {
+    id: 'nemotron-cloud',
+    name: 'nemotron-3-super:cloud',
+    url: '',
+    filename: '',
+    size: '',
+    isCloud: true,
+  },
+  {
+    id: 'gemma-cloud',
+    name: 'gemma4:31b-cloud',
+    url: '',
+    filename: '',
+    size: '',
+    isCloud: true,
+  },
+  {
+    id: 'deepseek-cloud',
+    name: 'deepseek-r1:8b',
+    url: '',
+    filename: '',
+    size: '',
+    isCloud: true,
+  }
+];
+
 export default function App() {
   // --- TAB ROUTING ---
   const [currentTab, _setCurrentTab] = useState<string>('stt');
@@ -65,11 +124,21 @@ export default function App() {
     'Hello! This is a test of the on-device text to speech engine. Adjust my rate and pitch to customize my voice!'
   );
 
-  // --- OFFLINE MODEL DOWNLOAD STATE ---
-  const modelUrl = 'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf';
-  const modelPath = `${RNFS.DocumentDirectoryPath}/Llama-3.2-1B-Instruct-Q4_K_M.gguf`;
-  const [modelDownloaded, setModelDownloaded] = useState<boolean>(false);
+  // --- OFFLINE MODELS SELECTION STATE ---
+  const [selectedModelId, setSelectedModelId] = useState<string>('llama-1b');
+  const [downloadedModels, setDownloadedModels] = useState<{[key: string]: boolean}>({
+    'llama-1b': false,
+    'llama-3b': false
+  });
+  const [modelDropdownVisible, setModelDropdownVisible] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const selectedModel = MODELS.find(m => m.id === selectedModelId) || MODELS[0];
+  const getModelPath = (filename: string) => `${RNFS.DocumentDirectoryPath}/${filename}`;
+
+  // --- DOWNLOAD STATE ---
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [downloadingModelId, setDownloadingModelId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadSpeed, setDownloadSpeed] = useState<string>('0 MB/s');
   const [downloadedSize, setDownloadedSize] = useState<string>('0 MB');
@@ -79,12 +148,13 @@ export default function App() {
 
   // --- LLAMA ENGINE STATE ---
   const llamaContextRef = useRef<any>(null);
+  const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [llamaInitialized, setLlamaInitialized] = useState<boolean>(false);
   const [isLlamaInitializing, setIsLlamaInitializing] = useState<boolean>(false);
 
   // --- TEXT CHAT STATE ---
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { id: '1', text: 'Hello! I am Llama 3.2, your offline AI Chat Bot. Ask me anything, and I will keep it short!', sender: 'ai' }
+    { id: '1', text: 'Hello! I am your local offline AI Chat Bot. Ask me anything, and I will keep it short!', sender: 'ai' }
   ]);
   const [chatInput, setChatInput] = useState<string>('');
   const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
@@ -177,21 +247,8 @@ export default function App() {
 
   // --- INITIALIZE ENGINES AND ATTACH LIFECYCLE LISTENERS ---
   useEffect(() => {
-    // Check if the GGUF model already exists on start
-    const checkModelFile = async () => {
-      try {
-        const exists = await RNFS.exists(modelPath);
-        if (exists) {
-          setModelDownloaded(true);
-          initLlamaContext();
-        } else {
-          setModelDownloaded(false);
-        }
-      } catch (err) {
-        console.warn('Error checking model path:', err);
-      }
-    };
-    checkModelFile();
+    // Check if GGUF files exist on startup
+    checkModelFiles();
 
     // 1. Initialize Speech-To-Text (Voice) listeners
     Voice.onSpeechStart = () => {
@@ -286,6 +343,27 @@ export default function App() {
     };
   }, []);
 
+  // --- CHECK DOWNLOADED MODELS ---
+  const checkModelFiles = async () => {
+    try {
+      const status: {[key: string]: boolean} = {};
+      for (const m of MODELS) {
+        if (!m.isCloud) {
+          const path = getModelPath(m.filename);
+          status[m.id] = await RNFS.exists(path);
+        }
+      }
+      setDownloadedModels(status);
+
+      // Auto-load current model if it's already downloaded
+      if (status[selectedModelId]) {
+        initLlamaContext(selectedModelId);
+      }
+    } catch (err) {
+      console.warn('Error checking model files:', err);
+    }
+  };
+
   // --- LOAD INSTALLED VOICES FROM DEVICE TTS ---
   const loadTtsVoices = async () => {
     try {
@@ -312,48 +390,75 @@ export default function App() {
     }
   };
 
-  // --- LLAMA CONTEXT LOADER ---
-  const initLlamaContext = async () => {
-    if (llamaContextRef.current || isLlamaInitializing) return;
+  // --- LLAMA CONTEXT LOADER (WITH SAFE MEMORY RELEASE) ---
+  const initLlamaContext = async (modelId: string) => {
+    if (llamaContextRef.current && activeModelId === modelId) return;
     setIsLlamaInitializing(true);
+    setLlamaInitialized(false);
     setDiagnosticError(null);
+
+    // 1. Release previous model from native RAM before loading new one
+    if (llamaContextRef.current) {
+      try {
+        console.log('Releasing Llama context:', activeModelId);
+        await llamaContextRef.current.release();
+      } catch (e) {
+        console.warn('Error releasing previous llama context:', e);
+      }
+      llamaContextRef.current = null;
+      setActiveModelId(null);
+    }
+
+    const model = MODELS.find(m => m.id === modelId);
+    if (!model || model.isCloud) {
+      setIsLlamaInitializing(false);
+      return;
+    }
+
+    const path = getModelPath(model.filename);
     try {
-      const exists = await RNFS.exists(modelPath);
+      const exists = await RNFS.exists(path);
       if (!exists) {
         setIsLlamaInitializing(false);
         return;
       }
-      console.log('Loading Llama model from path:', modelPath);
+      console.log('Loading Llama model:', model.name, 'from:', path);
       const context = await initLlama({
-        model: modelPath,
+        model: path,
         n_ctx: 1024,
         n_gpu_layers: 0, // safe CPU defaults for Android compatibility
       });
       llamaContextRef.current = context;
+      setActiveModelId(modelId);
       setLlamaInitialized(true);
-      console.log('Llama context initialized successfully.');
+      console.log('Llama context initialized successfully for:', model.name);
     } catch (err: any) {
       console.error('Llama initialization failed:', err);
-      setDiagnosticError(`Failed to load LLM: ${err.message || err}`);
+      setDiagnosticError(`Failed to load LLM (${model.name}): ${err.message || err}`);
     } finally {
       setIsLlamaInitializing(false);
     }
   };
 
   // --- DOWNLOAD MANAGER ---
-  const startDownload = async () => {
+  const startDownload = async (modelId: string) => {
+    const model = MODELS.find(m => m.id === modelId);
+    if (!model || model.isCloud) return;
+
+    setDownloadingModelId(modelId);
     setIsDownloading(true);
     setDownloadError(null);
     setDownloadProgress(0);
     setDownloadSpeed('0 MB/s');
 
+    const path = getModelPath(model.filename);
     let lastTime = Date.now();
     let lastBytes = 0;
 
     try {
       const options = {
-        fromUrl: modelUrl,
-        toFile: modelPath,
+        fromUrl: model.url,
+        toFile: path,
         begin: (res: any) => {
           setTotalSize((res.contentLength / (1024 * 1024)).toFixed(1) + ' MB');
         },
@@ -380,9 +485,10 @@ export default function App() {
 
       const res = await result.promise;
       if (res.statusCode === 200) {
-        setModelDownloaded(true);
+        setDownloadedModels(prev => ({ ...prev, [modelId]: true }));
         setIsDownloading(false);
-        initLlamaContext();
+        setDownloadingModelId(null);
+        initLlamaContext(modelId);
       } else {
         throw new Error(`Server returned HTTP code ${res.statusCode}`);
       }
@@ -390,11 +496,12 @@ export default function App() {
       console.error('Download error:', err);
       setDownloadError(err.message || 'Download failed. Check your network.');
       setIsDownloading(false);
+      setDownloadingModelId(null);
       // Clean up incomplete downloads
       try {
-        const fileExists = await RNFS.exists(modelPath);
+        const fileExists = await RNFS.exists(path);
         if (fileExists) {
-          await RNFS.unlink(modelPath);
+          await RNFS.unlink(path);
         }
       } catch (cleanErr) {
         console.warn('Error deleting partial file:', cleanErr);
@@ -403,11 +510,34 @@ export default function App() {
   };
 
   const cancelDownload = () => {
-    if (downloadJobId.current !== null) {
+    if (downloadJobId.current !== null && downloadingModelId) {
       RNFS.stopDownload(downloadJobId.current);
       setIsDownloading(false);
       setDownloadProgress(0);
-      RNFS.unlink(modelPath).catch(() => {});
+      const model = MODELS.find(m => m.id === downloadingModelId);
+      if (model) {
+        const path = getModelPath(model.filename);
+        RNFS.unlink(path).catch(() => {});
+      }
+      setDownloadingModelId(null);
+    }
+  };
+
+  // --- MODEL SELECTION HANDLER ---
+  const handleModelSelect = (model: ModelOption) => {
+    setModelDropdownVisible(false);
+    setSearchQuery('');
+
+    if (model.isCloud) {
+      setDiagnosticError(`Cloud model '${model.name}' requires API connectivity. Please select a local offline model.`);
+      return;
+    }
+
+    setSelectedModelId(model.id);
+
+    // If already downloaded, initialize immediately
+    if (downloadedModels[model.id]) {
+      initLlamaContext(model.id);
     }
   };
 
@@ -631,11 +761,11 @@ export default function App() {
     <View style={styles.downloadCard}>
       <Text style={styles.downloadTitle}>📥 Local AI Model Required</Text>
       <Text style={styles.downloadDesc}>
-        To chat offline, please download the local Llama 3.2 1B Instruct model (~1.2 GB).
+        To chat offline, please download the local model {selectedModel.name} ({selectedModel.size}).
         This file is saved entirely on your device for complete privacy and offline operation.
       </Text>
 
-      {isDownloading ? (
+      {isDownloading && downloadingModelId === selectedModelId ? (
         <View style={styles.downloadProgressSection}>
           <View style={styles.progressHeader}>
             <Text style={styles.progressPct}>{downloadProgress}%</Text>
@@ -645,7 +775,7 @@ export default function App() {
             <View style={[styles.progressBarFill, { width: `${downloadProgress}%` }]} />
           </View>
           <Text style={styles.progressSize}>
-            {downloadedSize} / {totalSize || '1.2 GB'}
+            {downloadedSize} / {totalSize || selectedModel.size}
           </Text>
           <TouchableOpacity style={styles.cancelBtn} onPress={cancelDownload}>
             <Text style={styles.cancelBtnText}>Cancel Download</Text>
@@ -656,8 +786,11 @@ export default function App() {
           {downloadError && (
             <Text style={styles.downloadErrorText}>⚠️ {downloadError}</Text>
           )}
-          <TouchableOpacity style={styles.downloadBtn} onPress={startDownload}>
-            <Text style={styles.downloadBtnText}>Download Model (1.2 GB)</Text>
+          <TouchableOpacity 
+            style={styles.downloadBtn} 
+            onPress={() => startDownload(selectedModelId)}
+          >
+            <Text style={styles.downloadBtnText}>Download Model ({selectedModel.size})</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -865,7 +998,7 @@ export default function App() {
 
   // --- RENDER CHAT TAB (Tab 3) ---
   const renderChatTab = () => {
-    if (!modelDownloaded) {
+    if (!downloadedModels[selectedModelId]) {
       return (
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {renderDownloadCard()}
@@ -877,7 +1010,7 @@ export default function App() {
       return (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6366F1" />
-          <Text style={styles.loadingText}>Loading Llama Model into RAM...</Text>
+          <Text style={styles.loadingText}>Loading Llama Context into RAM...</Text>
         </View>
       );
     }
@@ -890,7 +1023,9 @@ export default function App() {
       >
         <View style={styles.chatHeader}>
           <View style={styles.dotActive} />
-          <Text style={styles.chatHeaderStatus}>Local Llama 3.2 1B Active (Offline)</Text>
+          <Text style={styles.chatHeaderStatus}>
+            Local {selectedModel.name} Active (Offline)
+          </Text>
         </View>
 
         <FlatList
@@ -921,22 +1056,46 @@ export default function App() {
           )}
         />
 
-        <View style={styles.chatInputContainer}>
+        {/* Modern chat input bar representing provided design reference */}
+        <View style={styles.chatInputContainerModern}>
           <TextInput
-            style={styles.chatInput}
+            style={styles.chatInputModern}
             value={chatInput}
             onChangeText={setChatInput}
-            placeholder="Ask AI chatbot (typing)..."
+            placeholder={`Message ${selectedModel.name}...`}
             placeholderTextColor="#64748B"
-            multiline={false}
+            multiline
+            numberOfLines={2}
           />
-          <TouchableOpacity
-            style={[styles.chatSendBtn, (!chatInput.trim() || isAiThinking) && styles.chatSendBtnDisabled]}
-            onPress={sendTextMessage}
-            disabled={!chatInput.trim() || isAiThinking}
-          >
-            <Text style={styles.chatSendBtnText}>➡️</Text>
-          </TouchableOpacity>
+          <View style={styles.chatToolbarModern}>
+            <View style={styles.toolbarLeft}>
+              <TouchableOpacity style={styles.toolbarBtn}>
+                <Text style={styles.toolbarBtnText}>+</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.toolbarBtn}>
+                <Text style={styles.toolbarBtnText}>🌐</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.toolbarRight}>
+              <TouchableOpacity
+                style={styles.modelPillBtn}
+                onPress={() => setModelDropdownVisible(true)}
+                disabled={isDownloading}
+              >
+                <Text style={styles.modelPillText}>{selectedModel.name}</Text>
+                <Text style={styles.modelPillChevron}>▼</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.chatSendBtnCircle, (!chatInput.trim() || isAiThinking) && styles.chatSendBtnCircleDisabled]}
+                onPress={sendTextMessage}
+                disabled={!chatInput.trim() || isAiThinking}
+              >
+                <Text style={styles.chatSendBtnCircleText}>↑</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </KeyboardAvoidingView>
     );
@@ -944,7 +1103,7 @@ export default function App() {
 
   // --- RENDER VOICE CHAT ASSISTANT (Tab 4) ---
   const renderVoiceChatTab = () => {
-    if (!modelDownloaded) {
+    if (!downloadedModels[selectedModelId]) {
       return (
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {renderDownloadCard()}
@@ -956,13 +1115,26 @@ export default function App() {
       return (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6366F1" />
-          <Text style={styles.loadingText}>Loading Llama Model into RAM...</Text>
+          <Text style={styles.loadingText}>Loading Llama Context into RAM...</Text>
         </View>
       );
     }
 
     return (
       <ScrollView contentContainerStyle={styles.voiceChatScroll} keyboardShouldPersistTaps="handled">
+        {/* Model Selector pill visible inside voice chat */}
+        <View style={styles.voiceModelRow}>
+          <Text style={styles.voiceModelLabel}>Active LLM:</Text>
+          <TouchableOpacity
+            style={styles.modelPillBtn}
+            onPress={() => setModelDropdownVisible(true)}
+            disabled={isDownloading}
+          >
+            <Text style={styles.modelPillText}>{selectedModel.name}</Text>
+            <Text style={styles.modelPillChevron}>▼</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Ambient Visualizer */}
         <View style={styles.voiceAssistantWrapper}>
           <Animated.View style={[
@@ -1157,6 +1329,11 @@ export default function App() {
     </View>
   );
 
+  // Filter model list based on search
+  const filteredModels = MODELS.filter(m => 
+    m.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <SafeAreaView style={styles.safeContainer}>
       <StatusBar barStyle="light-content" backgroundColor="#0B0F19" />
@@ -1198,6 +1375,62 @@ export default function App() {
 
       {/* BOTTOM TAB BAR */}
       {renderTabBar()}
+
+      {/* MODEL SELECTION DROPDOWN MODAL */}
+      <Modal
+        visible={modelDropdownVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setModelDropdownVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.dropdownOverlay}
+          activeOpacity={1}
+          onPress={() => setModelDropdownVisible(false)}
+        >
+          <View style={styles.dropdownCard}>
+            {/* Search Input */}
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Find model..."
+                placeholderTextColor="#64748B"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+            </View>
+
+            {/* List of Models representing the design in user request */}
+            <ScrollView style={styles.modelListScroll}>
+              {filteredModels.map((item) => {
+                const isDownloaded = downloadedModels[item.id];
+                const isCloud = item.isCloud;
+                const isActive = selectedModelId === item.id;
+
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.modelItem, isActive && styles.modelItemActive]}
+                    onPress={() => handleModelSelect(item)}
+                  >
+                    <Text style={[styles.modelItemText, isActive && styles.modelItemTextActive]}>
+                      {item.name}
+                    </Text>
+                    
+                    {isCloud ? (
+                      <Text style={styles.cloudIcon}>☁️</Text>
+                    ) : !isDownloaded ? (
+                      <Text style={styles.downloadIconSmall}>📥</Text>
+                    ) : (
+                      isActive && <Text style={styles.checkmarkIconSmall}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* TTS VOICES SELECTION MODAL */}
       <Modal
@@ -1767,40 +2000,168 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     fontSize: 13,
   },
-  chatInputContainer: {
-    flexDirection: 'row',
-    padding: 12,
+
+  // --- MODERN INPUT CONTAINER AND TOOLBAR STYLES ---
+  chatInputContainerModern: {
     backgroundColor: '#0F172A',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.05)',
-    alignItems: 'center',
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  chatInput: {
-    flex: 1,
+  chatInputModern: {
     backgroundColor: '#1E293B',
-    borderRadius: 24,
-    paddingHorizontal: 18,
+    borderRadius: 12,
+    paddingHorizontal: 14,
     paddingVertical: 10,
     color: '#FFFFFF',
     fontSize: 14,
+    minHeight: 50,
+    maxHeight: 120,
+    textAlignVertical: 'top',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  chatToolbarModern: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  toolbarLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  toolbarBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.03)',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
-  chatSendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  toolbarBtnText: {
+    color: '#94A3B8',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  toolbarRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  modelPillBtn: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.3)',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  modelPillText: {
+    color: '#818CF8',
+    fontSize: 12,
+    fontWeight: '700',
+    marginRight: 6,
+  },
+  modelPillChevron: {
+    color: '#818CF8',
+    fontSize: 10,
+  },
+  chatSendBtnCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#6366F1',
     justifyContent: 'center',
     alignItems: 'center',
+    elevation: 2,
   },
-  chatSendBtnDisabled: {
+  chatSendBtnCircleDisabled: {
     backgroundColor: '#1E293B',
     opacity: 0.5,
   },
-  chatSendBtnText: {
+  chatSendBtnCircleText: {
+    color: '#FFFFFF',
     fontSize: 18,
+    fontWeight: 'bold',
+  },
+
+  // --- MODEL DROPDOWN MODAL OVERLAY STYLES ---
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    width: '80%',
+    maxHeight: '60%',
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  searchContainer: {
+    marginBottom: 10,
+  },
+  searchInput: {
+    backgroundColor: '#1E293B',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    color: '#FFFFFF',
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  modelListScroll: {
+    flexGrow: 0,
+  },
+  modelItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginVertical: 2,
+  },
+  modelItemActive: {
+    backgroundColor: 'rgba(99, 102, 241, 0.12)',
+  },
+  modelItemText: {
+    color: '#94A3B8',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modelItemTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  cloudIcon: {
+    fontSize: 14,
+    color: '#64748B',
+  },
+  downloadIconSmall: {
+    fontSize: 14,
+    color: '#6366F1',
+  },
+  checkmarkIconSmall: {
+    fontSize: 14,
+    color: '#10B981',
+    fontWeight: 'bold',
   },
 
   // --- VOICE CHAT ASSISTANT STYLES ---
@@ -1808,10 +2169,27 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 30,
   },
+  voiceModelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  voiceModelLabel: {
+    color: '#94A3B8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   voiceAssistantWrapper: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 30,
+    marginVertical: 24,
   },
   voiceOuterGlow: {
     width: 140,
